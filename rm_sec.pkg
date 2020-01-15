@@ -1,0 +1,100 @@
+
+CREATE OR REPLACE package rm_sec AUTHID CURRENT_USER as
+  Procedure showPassword(p_user     in varchar2);
+  function showPassword(p_user     in varchar2) return varchar2;
+END RM_SEC;
+/
+ 
+CREATE OR REPLACE PACKAGE BODY rm_sec AS
+ 
+function decrypt(key in varchar2, value in varchar2)
+  return varchar2
+  as language java name 'oracle.apps.fnd.security.WebSessionManagerProc.decrypt(java.lang.String,java.lang.String) return java.lang.String';
+ 
+function get_foundation_password
+  return varchar2
+is
+  guestUserPwd varchar2(200);
+  guestUserName varchar2(100);
+  guestUserPwdOnly varchar2(100);
+  guestFndPwd varchar2(100);
+  guestEncFndPwd varchar2(100);
+  delim number;
+  bad_guest_user exception;
+begin
+ 
+  guestUserPwd := upper(fnd_profile.value('GUEST_USER_PWD'));
+ 
+  delim := instr(guestUserPwd,'/');
+ 
+  if(delim = 0) then
+    raise bad_guest_user;
+  else
+    guestUserName := upper(substr(guestUserPwd,1,delim-1));
+    guestUserPwdOnly := upper(substr(guestUserPwd,delim+1));
+  end if;
+ 
+  select encrypted_foundation_password into guestEncFndPwd
+  from fnd_user
+  where user_name = guestUserName and (start_date <= sysdate) and
+    (end_date is null or end_date > sysdate);
+ 
+  guestFndPwd := decrypt(guestUserPwd,guestEncFndPwd);
+ 
+  if(guestFndPwd is null) then
+    raise bad_guest_user;
+  end if;
+ 
+  return guestFndPwd;
+ 
+  exception
+    when others then
+      fnd_message.set_encoded('MRP'||fnd_global.local_chr(0)||
+        'GEN-INVALID PROFILE'||fnd_global.local_chr(0)||
+        'N'||fnd_global.local_chr(0)||
+        'PROFILE'||fnd_global.local_chr(0)||
+        'GUEST_USER_PWD'||fnd_global.local_chr(0)||
+        'N'||fnd_global.local_chr(0)||
+        'VALUE'||fnd_global.local_chr(0)||
+        guestUserPwd||fnd_global.local_chr(0));
+      return null;
+ 
+end get_foundation_password;
+ 
+Procedure showPassword(p_user     in varchar2 )
+is
+  user varchar2(100) := upper(p_user);
+  encUserPwd varchar2(100);
+  fndPwd varchar2(100);
+ BEGIN
+  select   encrypted_user_password
+     into   encUserPwd
+  from fnd_user
+  where user_name = user and (start_date <= sysdate) and
+    (end_date is null or end_date > sysdate);
+ 
+  fndPwd := get_foundation_password();
+  dbms_output.put_line( decrypt(fndPwd,encUserPwd));
+ 
+ END showPassword;
+ 
+function showPassword(p_user     in varchar2 )
+ return varchar2
+is
+  user varchar2(100) := upper(p_user);
+  encUserPwd varchar2(100);
+  fndPwd varchar2(100);
+ BEGIN
+  select   encrypted_user_password
+     into   encUserPwd
+  from fnd_user
+  where user_name = user and (start_date <= sysdate) and
+    (end_date is null or end_date > sysdate);
+ 
+  fndPwd := get_foundation_password();
+  return decrypt(fndPwd,encUserPwd);
+ 
+ END showPassword;
+End RM_SEC;
+/
+
